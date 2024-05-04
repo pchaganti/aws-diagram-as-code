@@ -23,6 +23,13 @@ Definitions:
 
   # Groups
 
+  "AWS::Diagram::Canvas":
+    Type: Group
+    Border:
+      Color: "rgba(0, 0, 0, 0)"
+    Fill:
+      Color: "rgba(255, 255, 255, 255)"
+
   AWS::Diagram::Cloud:
     Type: Group
     Icon:
@@ -81,13 +88,14 @@ Definitions:
     Type: Group
     Icon:
       Source: ArchitectureIconsPptxMedia
+      Path: "image26.png"
     Label:
       Title: "Subnet"
       Color: "rgba(0, 0, 0, 255)"
     Fill:
       Color: "rgba(0, 0, 0, 0)"
     Border:
-      Color: "rgba(0, 0, 0, 0)"
+      Color: "rgba(122, 161, 22, 255)"
 
   PrivateSubnet:
     Type: Preset

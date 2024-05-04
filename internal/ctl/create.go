@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package ctl
 
 import (
@@ -12,7 +15,6 @@ import (
 	"github.com/awslabs/diagram-as-code/internal/types"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
-	"gopkg.in/yaml.v3"
 )
 
 func stringToColor(c string) color.RGBA {
@@ -64,24 +66,24 @@ type Link struct {
 	LineWidth       int             `yaml:"LineWidth"`
 }
 
-func CreateDiagram(inputfile string, outputfile *string) {
+func createDiagram(resources map[string]types.Node, outputfile *string) {
 
-	log.Infof("input file: %s\n", inputfile)
-	data, err := os.ReadFile(inputfile)
-	if err != nil {
-		log.Fatal(err)
-	}
+	log.Info("Drawing diagram...")
+	resources["Canvas"].Scale()
+	resources["Canvas"].ZeroAdjust()
+	img := resources["Canvas"].Draw(nil, nil)
 
-	var b TemplateStruct
+	log.Infof("Save %s\n", *outputfile)
+	fmt.Printf("[Completed] output image: %s\n", *outputfile)
+	f, _ := os.OpenFile(*outputfile, os.O_WRONLY|os.O_CREATE, 0600)
+	defer f.Close()
+	png.Encode(f, img)
+}
 
-	err = yaml.Unmarshal([]byte(data), &b)
-	if err != nil {
-		log.Fatal(err)
-	}
+func loadDefinitionFiles(template *TemplateStruct, ds *definition.DefinitionStructure) {
 
 	// Load definition files
-	var ds definition.DefinitionStructure
-	for _, v := range b.Diagram.DefinitionFiles {
+	for _, v := range template.Diagram.DefinitionFiles {
 		switch v.Type {
 		case "URL":
 			log.Infof("Fetch definition file from URL: %s\n", v.Url)
@@ -106,14 +108,20 @@ func CreateDiagram(inputfile string, outputfile *string) {
 		}
 	}
 
-	var resources map[string]types.Node = make(map[string]types.Node)
+}
+
+func loadResources(template *TemplateStruct, ds definition.DefinitionStructure, resources map[string]types.Node) {
+
 	resources["Canvas"] = new(types.Group).Init()
 
-	log.Info("Add resources")
-	for k, v := range b.Resources {
+	for k, v := range template.Resources {
 		title := v.Title
 		log.Infof("Load Resource: %s (%s)\n", k, v.Type)
+
 		switch v.Type {
+		case "":
+			log.Infof("%s does not have Type. Delete it from resources", k)
+			delete(resources, k)
 		case "AWS::Diagram::Canvas":
 			resources[k].SetBorderColor(color.RGBA{0, 0, 0, 0})
 			resources[k].SetFillColor(color.RGBA{255, 255, 255, 255})
@@ -128,7 +136,8 @@ func CreateDiagram(inputfile string, outputfile *string) {
 		default:
 			def, ok := ds.Definitions[v.Type]
 			if !ok {
-				log.Fatalf("Unknown type: %s\n", v.Type)
+				log.Warnf("Unknown type: %s\n", v.Type)
+				continue
 			}
 			if def.Type == "Resource" {
 				resources[k] = new(types.Resource).Init()
@@ -160,15 +169,16 @@ func CreateDiagram(inputfile string, outputfile *string) {
 				resources[k].LoadIcon(def.CacheFilePath)
 			}
 		}
+
 		switch v.Preset {
 		case "BlankGroup":
 			resources[k].SetIconBounds(image.Rect(0, 0, 64, 64))
 		case "":
-			break
 		default:
 			def, ok := ds.Definitions[v.Preset]
 			if !ok {
-				log.Fatalf("Unknown preset: %s\n", v.Preset)
+				log.Warnf("Unknown preset: %s\n", v.Type)
+				continue
 			}
 			if fill := def.Fill; fill != nil {
 				resources[k].SetFillColor(stringToColor(fill.Color))
@@ -219,31 +229,72 @@ func CreateDiagram(inputfile string, outputfile *string) {
 			resources[k].SetFillColor(stringToColor(v.FillColor))
 		}
 	}
-	log.Info("Add children")
-	for k, v := range b.Resources {
+
+}
+
+func associateChildren(template *TemplateStruct, resources map[string]types.Node) {
+
+	for logicalId, v := range template.Resources {
 		for _, child := range v.Children {
 			_, ok := resources[child]
 			if !ok {
-				log.Warnf("Not found resource %s", child)
+				log.Infof("%s does not have parent resource", child)
 				continue
 			}
-			log.Infof("Add child(%s) on %s", child, k)
-			resources[k].AddChild(resources[child])
+			log.Infof("Add child(%s) on %s", child, logicalId)
+
+			resources[logicalId].AddChild(resources[child])
 		}
 	}
+}
 
-	log.Info("Add links")
-	for _, v := range b.Links {
+func associateCFnChildren(template *TemplateStruct, ds definition.DefinitionStructure, resources map[string]types.Node) {
+
+	for logicalId, v := range template.Resources {
+
+		def, ok := ds.Definitions[v.Type]
+
+		if v.Type == "" || !ok {
+			log.Infof("%s is not defined in CloudFormation template or definition file. Skip process", logicalId)
+			continue
+		}
+
+		if def.Type != "Group" {
+			log.Infof("%s does not have \"Group\" type. To have children, resources must have \"Group\" type.", logicalId)
+			continue
+		}
+
+		if _, ok = resources[logicalId]; !ok {
+			log.Infof("%s is not defined as a resource. Skip process", logicalId)
+			continue
+		}
+
+		for _, child := range v.Children {
+			_, ok := resources[child]
+			if !ok {
+				log.Infof("%s does not have parent resource", child)
+				continue
+			}
+			log.Infof("Add child(%s) on %s", child, logicalId)
+
+			resources[logicalId].AddChild(resources[child])
+		}
+	}
+}
+
+func loadLinks(template *TemplateStruct, resources map[string]types.Node) {
+
+	for _, v := range template.Links {
 		_, ok := resources[v.Source]
 		if !ok {
-			log.Warnf("Not found resource %s", v.Source)
+			log.Warnf("Not found Source esource %s", v.Source)
 			continue
 		}
 		source := resources[v.Source]
 
 		_, ok = resources[v.Target]
 		if !ok {
-			log.Warnf("Not found resource %s", v.Target)
+			log.Warnf("Not found Target resource %s", v.Target)
 			continue
 		}
 		target := resources[v.Target]
@@ -258,14 +309,4 @@ func CreateDiagram(inputfile string, outputfile *string) {
 		resources[v.Target].AddLink(link)
 	}
 
-	log.Info("Drawing")
-	resources["Canvas"].Scale()
-	resources["Canvas"].ZeroAdjust()
-	img := resources["Canvas"].Draw(nil, nil)
-
-	log.Infof("Save %s\n", *outputfile)
-	fmt.Printf("[Completed] output image: %s\n", *outputfile)
-	f, _ := os.OpenFile(*outputfile, os.O_WRONLY|os.O_CREATE, 0600)
-	defer f.Close()
-	png.Encode(f, img)
 }
