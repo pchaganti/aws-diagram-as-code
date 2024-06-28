@@ -19,6 +19,8 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+const DEBUG_LAYOUT = false
+
 type Resource struct {
 	bindings    *image.Rectangle
 	iconImage   image.Image
@@ -37,25 +39,28 @@ type Resource struct {
 	drawn       bool
 }
 
-var defaultResourceValues = map[bool]Resource{
-	false: { // resource has not children and show as Resource
-		bindings: &image.Rectangle{
-			image.Point{0, 0},
-			image.Point{64, 64},
-		},
-		margin:      &Margin{30, 100, 30, 100},
-		padding:     &Padding{0, 0, 0, 0},
-		borderColor: &color.RGBA{0, 0, 0, 0},
-	},
-	true: { // resource has children and show as Group
-		bindings: &image.Rectangle{
-			image.Point{0, 0},
-			image.Point{320, 190},
-		},
-		margin:      &Margin{20, 15, 20, 15},
-		padding:     &Padding{20, 45, 20, 45},
-		borderColor: &color.RGBA{0, 0, 0, 255},
-	},
+func defaultResourceValues(hasChild bool) Resource {
+	if hasChild {
+		return Resource{ // resource has children and show as Group
+			bindings: &image.Rectangle{
+				image.Point{0, 0},
+				image.Point{320, 190},
+			},
+			margin:      &Margin{20, 15, 20, 15},
+			padding:     &Padding{20, 45, 20, 45},
+			borderColor: &color.RGBA{0, 0, 0, 255},
+		}
+	} else {
+		return Resource{ // resource has not children and show as Resource
+			bindings: &image.Rectangle{
+				image.Point{0, 0},
+				image.Point{64, 64},
+			},
+			margin:      &Margin{30, 100, 30, 100},
+			padding:     &Padding{0, 0, 0, 0},
+			borderColor: &color.RGBA{0, 0, 0, 0},
+		}
+	}
 }
 
 func (r *Resource) Init() *Resource {
@@ -87,6 +92,8 @@ func (r *Resource) LoadIcon(imageFilePath string) error {
 		return err
 	}
 	r.iconBounds = image.Rect(0, 0, 64, 64)
+	_b := image.Rect(0, 0, 64, 64)
+	r.bindings = &_b
 	r.iconImage = iconImage
 	return nil
 }
@@ -150,7 +157,61 @@ func (r *Resource) AddChild(child *Resource) {
 	r.children = append(r.children, child)
 }
 
-func (r *Resource) Scale() {
+func (r *Resource) prepareFontFace(hasChild bool, parent *Resource) font.Face {
+	if r.labelFont == "" {
+		if parent != nil && parent.labelFont != "" {
+			r.labelFont = parent.labelFont
+		} else {
+			for _, x := range fontPath.Paths {
+				if _, err := os.Stat(x); !errors.Is(err, os.ErrNotExist) {
+					r.labelFont = x
+					break
+				}
+			}
+		}
+	}
+	if r.labelColor == nil {
+		if parent != nil && parent.labelColor != nil {
+			r.labelColor = parent.labelColor
+		} else {
+			r.labelColor = &color.RGBA{0, 0, 0, 255}
+		}
+	}
+	if r.labelFont == "" {
+		panic("Specified fonts are not installed.")
+	}
+	f, err := os.Open(r.labelFont)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	ttfBytes, err := ioutil.ReadAll(f)
+	if err != nil {
+		panic(err)
+	}
+
+	ft, err := truetype.Parse(ttfBytes)
+	if err != nil {
+		panic(err)
+	}
+
+	opt := truetype.Options{
+		Size:              24,
+		DPI:               0,
+		Hinting:           0,
+		GlyphCacheEntries: 0,
+		SubPixelsX:        0,
+		SubPixelsY:        0,
+	}
+	if hasChild {
+		opt.Size = 30
+	}
+
+	return truetype.NewFace(ft, &opt)
+}
+
+func (r *Resource) Scale(parent *Resource) {
 	log.Infof("Scale %s", r.label)
 	var prev *Resource
 	b := image.Rectangle{
@@ -164,32 +225,54 @@ func (r *Resource) Scale() {
 		},
 	}
 	hasChildren := len(r.children) != 0
+	fontFace := r.prepareFontFace(hasChildren, parent)
+	textBindings, _ := font.BoundString(fontFace, r.label)
+	textWidth := textBindings.Max.X.Ceil() - textBindings.Min.X.Ceil()
+	textHeight := textBindings.Max.Y.Ceil() - textBindings.Min.Y.Ceil()
 	if r.bindings == nil {
-		r.bindings = defaultResourceValues[hasChildren].bindings
+		r.bindings = defaultResourceValues(hasChildren).bindings
 	}
 	if r.margin == nil {
-		r.margin = defaultResourceValues[hasChildren].margin
+		r.margin = defaultResourceValues(hasChildren).margin
+		// Expand bindings to fit text size
+		if !hasChildren {
+			// Resource (no child)
+			r.margin.Bottom += textHeight
+			_m := (textWidth - r.iconBounds.Dx()) / 2
+			r.margin.Left = maxInt(r.margin.Left, _m)
+			r.margin.Right = maxInt(r.margin.Right, _m)
+		}
 	}
 	if r.padding == nil {
-		r.padding = defaultResourceValues[hasChildren].padding
+		r.padding = defaultResourceValues(hasChildren).padding
 	}
 	if r.borderColor == nil {
-		r.borderColor = defaultResourceValues[hasChildren].borderColor
+		r.borderColor = defaultResourceValues(hasChildren).borderColor
 	}
 
-	w := r.padding.Left + r.padding.Right
-	h := r.padding.Top + r.padding.Bottom
+	// Expand bindings to fit text size
+	if hasChildren && r.direction == "vertical" {
+		// Group (has child)
+		prev = &Resource{
+			margin: &Margin{},
+			bindings: &image.Rectangle{
+				Min: image.Point{
+					0,
+					0,
+				},
+				Max: image.Point{
+					textWidth + r.iconBounds.Dx() + 30,
+					0,
+				},
+			},
+		}
+		b = *prev.bindings
+	}
+
 	for _, subResource := range r.children {
-		subResource.Scale()
+		subResource.Scale(parent)
 		bindings := subResource.GetBindings()
 		margin := subResource.GetMargin()
-		if r.direction == "horizontal" {
-			w += bindings.Dx() + margin.Left + margin.Right
-			h = maxInt(h, bindings.Dy()+margin.Top+margin.Bottom)
-		} else {
-			w = maxInt(w, bindings.Dx()+margin.Left+margin.Right)
-			h += bindings.Dy() + margin.Top + margin.Bottom
-		}
 		if prev != nil {
 			prevBindings := prev.GetBindings()
 			prevMargin := prev.GetMargin()
@@ -242,8 +325,15 @@ func (r *Resource) Scale() {
 		b.Max.Y = maxInt(b.Max.Y, bindings.Max.Y+margin.Bottom+r.padding.Bottom)
 		prev = subResource
 	}
-	b.Max.X = maxInt(b.Max.X, b.Min.X+w)
-	b.Max.Y = maxInt(b.Max.Y, b.Min.Y+h)
+	// Expand bindings to fit text size
+	if hasChildren && r.direction == "horizontal" {
+		// Group (has child)
+		if textWidth+r.iconBounds.Dx()+30 > b.Dx() {
+			_dx := b.Dx()
+			b.Min.X -= (textWidth + r.iconBounds.Dx() + 30 - _dx) / 2
+			b.Max.X += (textWidth + r.iconBounds.Dx() + 30 - _dx) / 2
+		}
+	}
 	if b.Min.X != math.MaxInt {
 		r.SetBindings(b)
 	}
@@ -281,7 +371,13 @@ func (r *Resource) Draw(img *image.RGBA, parent *Resource) *image.RGBA {
 		img = image.NewRGBA(*r.bindings)
 	}
 
+	if DEBUG_LAYOUT {
+		r.drawMargin(img)
+	}
 	r.drawFrame(img)
+	if DEBUG_LAYOUT {
+		r.drawPadding(img)
+	}
 
 	rctSrc := r.iconImage.Bounds()
 	x := image.Rectangle{r.bindings.Min, r.bindings.Min.Add(image.Point{64, 64})}
@@ -320,65 +416,54 @@ func (r *Resource) drawFrame(img *image.RGBA) {
 			} else {
 				// Set background
 				img.Set(x, y, _blend_color(c, r.fillColor))
+				if DEBUG_LAYOUT {
+					img.Set(x, y, _blend_color(c, color.RGBA{255, 255, 255, 255}))
+				}
 				//img.Set(x, y, fill_color)
 			}
 		}
 	}
 }
 
+func (r *Resource) drawPadding(img *image.RGBA) {
+	x1 := r.bindings.Min.X
+	x2 := r.bindings.Max.X
+	y1 := r.bindings.Min.Y
+	y2 := r.bindings.Max.Y
+	for x := x1 - WIDTH + 1; x < x2+WIDTH-1; x++ {
+		for y := y1 - WIDTH + 1; y < y2+WIDTH-1; y++ {
+			c := img.At(x, y)
+			img.Set(x, y, _blend_color(c, color.RGBA{0, 255, 0, 127}))
+		}
+	}
+	x1 = r.bindings.Min.X + r.padding.Left
+	x2 = r.bindings.Max.X - r.padding.Right
+	y1 = r.bindings.Min.Y + r.padding.Top
+	y2 = r.bindings.Max.Y - r.padding.Bottom
+	for x := x1 - WIDTH + 1; x < x2+WIDTH-1; x++ {
+		for y := y1 - WIDTH + 1; y < y2+WIDTH-1; y++ {
+			c := img.At(x, y)
+			img.Set(x, y, _blend_color(c, color.RGBA{255, 255, 255, 255}))
+		}
+	}
+
+}
+
+func (r *Resource) drawMargin(img *image.RGBA) {
+	x1 := r.bindings.Min.X - r.margin.Left
+	x2 := r.bindings.Max.X + r.margin.Right
+	y1 := r.bindings.Min.Y - r.margin.Top
+	y2 := r.bindings.Max.Y + r.margin.Bottom
+	for x := x1 - WIDTH + 1; x < x2+WIDTH-1; x++ {
+		for y := y1 - WIDTH + 1; y < y2+WIDTH-1; y++ {
+			c := img.At(x, y)
+			img.Set(x, y, _blend_color(c, color.RGBA{255, 255, 0, 255}))
+		}
+	}
+}
+
 func (r *Resource) drawLabel(img *image.RGBA, parent *Resource, hasChild bool) {
-
-	if r.labelFont == "" {
-		if parent != nil && parent.labelFont != "" {
-			r.labelFont = parent.labelFont
-		} else {
-			for _, x := range fontPath.Paths {
-				if _, err := os.Stat(x); !errors.Is(err, os.ErrNotExist) {
-					r.labelFont = x
-					break
-				}
-			}
-		}
-	}
-	if r.labelColor == nil {
-		if parent != nil && parent.labelColor != nil {
-			r.labelColor = parent.labelColor
-		} else {
-			r.labelColor = &color.RGBA{0, 0, 0, 255}
-		}
-	}
-	if r.labelFont == "" {
-		panic("Specified fonts are not installed.")
-	}
-	f, err := os.Open(r.labelFont)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-
-	ttfBytes, err := ioutil.ReadAll(f)
-	if err != nil {
-		panic(err)
-	}
-
-	ft, err := truetype.Parse(ttfBytes)
-	if err != nil {
-		panic(err)
-	}
-
-	opt := truetype.Options{
-		Size:              24,
-		DPI:               0,
-		Hinting:           0,
-		GlyphCacheEntries: 0,
-		SubPixelsX:        0,
-		SubPixelsY:        0,
-	}
-	if hasChild {
-		opt.Size = 30
-	}
-
-	face := truetype.NewFace(ft, &opt)
+	face := r.prepareFontFace(hasChild, parent)
 
 	b, _ := font.BoundString(face, r.label)
 	w := b.Max.X - b.Min.X + fixed.I(1)
