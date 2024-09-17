@@ -21,11 +21,20 @@ import (
 
 const DEBUG_LAYOUT = false
 
+type BORDER_TYPE int
+
+// iotaを用いて連番を生成する
+const (
+	BORDER_TYPE_STRAIGHT BORDER_TYPE = iota
+	BORDER_TYPE_DASHED
+)
+
 type Resource struct {
 	bindings    *image.Rectangle
 	iconImage   image.Image
 	iconBounds  image.Rectangle
 	borderColor *color.RGBA
+	borderType  BORDER_TYPE
 	fillColor   color.RGBA
 	label       string
 	labelFont   string
@@ -69,10 +78,11 @@ func (r *Resource) Init() *Resource {
 	rr.iconImage = image.NewRGBA(image.Rect(0, 0, 0, 0))
 	rr.iconBounds = image.Rect(0, 0, 0, 0)
 	rr.borderColor = nil
+	rr.borderType = BORDER_TYPE_STRAIGHT
 	rr.fillColor = color.RGBA{0, 0, 0, 0}
 	rr.label = ""
 	rr.labelFont = ""
-	rr.labelColor = &color.RGBA{0, 0, 0, 0}
+	rr.labelColor = &color.RGBA{0, 0, 0, 255}
 	rr.margin = nil
 	rr.padding = nil
 	rr.direction = "horizontal"
@@ -120,6 +130,10 @@ func (r *Resource) GetPadding() Padding {
 
 func (r *Resource) SetBorderColor(borderColor color.RGBA) {
 	r.borderColor = &borderColor
+}
+
+func (r *Resource) SetBorderType(borderType BORDER_TYPE) {
+	r.borderType = borderType
 }
 
 func (r *Resource) SetFillColor(fillColor color.RGBA) {
@@ -225,10 +239,14 @@ func (r *Resource) Scale(parent *Resource) {
 		},
 	}
 	hasChildren := len(r.children) != 0
-	fontFace := r.prepareFontFace(hasChildren, parent)
-	textBindings, _ := font.BoundString(fontFace, r.label)
-	textWidth := textBindings.Max.X.Ceil() - textBindings.Min.X.Ceil()
-	textHeight := textBindings.Max.Y.Ceil() - textBindings.Min.Y.Ceil()
+	textWidth := 0
+	textHeight := 0
+	if r.label != "" {
+		fontFace := r.prepareFontFace(hasChildren, parent)
+		textBindings, _ := font.BoundString(fontFace, r.label)
+		textWidth = textBindings.Max.X.Ceil() - textBindings.Min.X.Ceil()
+		textHeight = textBindings.Max.Y.Ceil() - textBindings.Min.Y.Ceil()
+	}
 	if r.bindings == nil {
 		r.bindings = defaultResourceValues(hasChildren).bindings
 	}
@@ -411,8 +429,14 @@ func (r *Resource) drawFrame(img *image.RGBA) {
 			c := img.At(x, y)
 			if x <= x1 || x >= x2-1 || y <= y1 || y >= y2-1 {
 				// Set border
-				img.Set(x, y, _blend_color(c, r.borderColor))
-				//img.Set(x, y, border_color)
+				switch r.borderType {
+				case BORDER_TYPE_STRAIGHT:
+					img.Set(x, y, _blend_color(c, r.borderColor))
+				case BORDER_TYPE_DASHED:
+					if (x+y)%9 <= 5 {
+						img.Set(x, y, _blend_color(c, r.borderColor))
+					}
+				}
 			} else {
 				// Set background
 				img.Set(x, y, _blend_color(c, r.fillColor))
