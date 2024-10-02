@@ -6,7 +6,7 @@ Definitions:
     Type: Zip
     ZipFile:
       SourceType: url
-      Url: "https://d1.awsstatic.com/webteam/architecture-icons/q2-2024/AWS-Architecture-Icons-Deck_For-Light-BG_06072024.pptx.e4b849d39e2f4fd38a851a420dcbf8cefc817e23.zip"
+      Url: "https://d1.awsstatic.com/webteam/architecture-icons/q2-2024/AWS-Architecture-Icon-Decks.pptx.d6671530ea426cd7ff7fb00423bccb120bfc69df.zip"
 
   ArchitectureIconsPptx:
     Type: Zip
@@ -74,6 +74,19 @@ Definitions:
     CFn:
       HasChildren: true
 
+  AWS::EC2::AvailabilityZone:
+    Type: Group
+    Border:
+      Type: "dashed"
+      Color: "rgba(0, 164, 166, 255)"
+    HeaderAlign: center
+    Label:
+      Title: "Availability Zone"
+      Color: "rgba(0, 0, 0, 255)"
+    CFn:
+      HasChildren: true
+
+
   AWS::AutoScaling::AutoScalingGroup:
     Type: Group
     Icon:
@@ -82,6 +95,7 @@ Definitions:
     Border:
       Type: "dashed"
       Color: "rgba(237, 113, 0, 255)"
+    HeaderAlign: center
     Label:
       Title: "Auto Scaling Group"
       Color: "rgba(0, 0, 0, 255)"
