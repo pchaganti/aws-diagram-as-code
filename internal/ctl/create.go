@@ -45,16 +45,22 @@ type DefinitionFile struct {
 }
 
 type Resource struct {
-	Type       string   `yaml:"Type"`
-	Icon       string   `yaml:"Icon"`
-	Direction  string   `yaml:"Direction"`
-	Preset     string   `yaml:"Preset"`
-	Align      string   `yaml:"Align"`
-	FillColor  string   `yaml:"FillColor"`
-	Title      string   `yaml:"Title"`
-	TitleColor string   `yaml:"TitleColor"`
-	Font       string   `yaml:"Font"`
-	Children   []string `yaml:"Children"`
+	Type           string        `yaml:"Type"`
+	Icon           string        `yaml:"Icon"`
+	Direction      string        `yaml:"Direction"`
+	Preset         string        `yaml:"Preset"`
+	Align          string        `yaml:"Align"`
+	FillColor      string        `yaml:"FillColor"`
+	Title          string        `yaml:"Title"`
+	TitleColor     string        `yaml:"TitleColor"`
+	Font           string        `yaml:"Font"`
+	Children       []string      `yaml:"Children"`
+	BorderChildren []BorderChild `yaml:"BorderChildren"`
+}
+
+type BorderChild struct {
+	Position string `yaml:"Position"`
+	Resource string `yaml:"Resource"`
 }
 
 type Link struct {
@@ -64,7 +70,9 @@ type Link struct {
 	Target          string          `yaml:"Target"`
 	TargetPosition  string          `yaml:"TargetPosition"`
 	TargetArrowHead types.ArrowHead `yaml:"TargetArrowHead"`
+	Type            string          `yaml:"Type"`
 	LineWidth       int             `yaml:"LineWidth"`
+	LineColor       string          `yaml:"LineColor"`
 }
 
 func createDiagram(resources map[string]*types.Resource, outputfile *string) {
@@ -276,6 +284,24 @@ func associateChildren(template *TemplateStruct, resources map[string]*types.Res
 
 			resources[logicalId].AddChild(resources[child])
 		}
+		for _, borderChild := range v.BorderChildren {
+			_, ok := resources[borderChild.Resource]
+			if !ok {
+				log.Infof("%s does not have parent resource", borderChild.Resource)
+				continue
+			}
+			log.Infof("Add BorderChild(%s) on %s", borderChild.Resource, logicalId)
+
+			position, err := types.ConvertWindrose(borderChild.Position)
+			if err != nil {
+				panic(err)
+			}
+			bc := types.BorderChild{
+				Position: position,
+				Resource: resources[borderChild.Resource],
+			}
+			resources[logicalId].AddBorderChild(&bc)
+		}
 	}
 }
 
@@ -301,7 +327,22 @@ func loadLinks(template *TemplateStruct, resources map[string]*types.Resource) {
 		if lineWidth == 0 {
 			lineWidth = 2
 		}
-		link := new(types.Link).Init(source, v.SourcePosition, v.SourceArrowHead, target, v.TargetPosition, v.TargetArrowHead, lineWidth)
+
+		lineColor := color.RGBA{0, 0, 0, 255}
+		if v.LineColor != "" {
+			lineColor = stringToColor(v.LineColor)
+		}
+
+		sourcePosition, err := types.ConvertWindrose(v.SourcePosition)
+		if err != nil {
+			panic(err)
+		}
+		targetPosition, err := types.ConvertWindrose(v.TargetPosition)
+		if err != nil {
+			panic(err)
+		}
+		link := new(types.Link).Init(source, sourcePosition, v.SourceArrowHead, target, targetPosition, v.TargetArrowHead, lineWidth, lineColor)
+		link.SetType(v.Type)
 		resources[v.Source].AddLink(link)
 		resources[v.Target].AddLink(link)
 	}
