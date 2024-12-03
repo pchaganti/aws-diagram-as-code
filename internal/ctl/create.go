@@ -208,7 +208,7 @@ func loadResources(template *TemplateStruct, ds definition.DefinitionStructure, 
 		default:
 			def, ok := ds.Definitions[v.Preset]
 			if !ok {
-				log.Warnf("Unknown preset: %s\n", v.Type)
+				log.Warnf("Unknown preset %s on %s\n", v.Preset, v.Type)
 				continue
 			}
 			if fill := def.Fill; fill != nil {
@@ -274,10 +274,14 @@ func fallbackToServiceIcon(inputType string) string {
 func associateChildren(template *TemplateStruct, resources map[string]*types.Resource) {
 
 	for logicalId, v := range template.Resources {
+		_, ok := resources[logicalId]
+		if !ok {
+			log.Fatalf("Unknown resource %s\n", logicalId)
+		}
 		for _, child := range v.Children {
 			_, ok := resources[child]
 			if !ok {
-				log.Infof("%s does not have parent resource", child)
+				log.Warnf("Child `%s` was not found, ignoring it.", child)
 				continue
 			}
 			log.Infof("Add child(%s) on %s", child, logicalId)
@@ -287,7 +291,7 @@ func associateChildren(template *TemplateStruct, resources map[string]*types.Res
 		for _, borderChild := range v.BorderChildren {
 			_, ok := resources[borderChild.Resource]
 			if !ok {
-				log.Infof("%s does not have parent resource", borderChild.Resource)
+				log.Warnf("Child `%s` was not found, ignoring it.", borderChild.Resource)
 				continue
 			}
 			log.Infof("Add BorderChild(%s) on %s", borderChild.Resource, logicalId)
