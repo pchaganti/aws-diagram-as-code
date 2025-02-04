@@ -102,8 +102,13 @@ Diagram:
       Type: AWS::Diagram::Resource
     IGW1:
       Type: AWS::EC2::InternetGateway
+      IconFill:
+        Type: rect
+
     IGW2:
       Type: AWS::EC2::InternetGateway
+      IconFill:
+        Type: rect
 
     User:
       Type: AWS::Diagram::Resource
@@ -150,6 +155,7 @@ Diagram:
       TargetArrowHead:
         Type: Open
       Type: orthogonal
+      LineColor: 'rgba(0,125,125,255)'
     - Source: IGW1
       SourcePosition: E
       Target: VPC1PublicSubnet2Instance
@@ -157,6 +163,7 @@ Diagram:
       TargetArrowHead:
         Type: Open
       Type: orthogonal
+      LineColor: 'rgba(0,125,125,255)'
     - Source: User
       SourcePosition: W
       Target: IGW1
@@ -165,6 +172,10 @@ Diagram:
         Type: Open
       Type: orthogonal
       LineColor: 'rgba(0,125,125,255)'
+      Labels:
+        SourceRight:
+          Title: "SSH access"
+          Color: 'rgba(0,125,125,255)'
     - Source: IGW2
       SourcePosition: W
       Target: VPC2PublicSubnet1Instance
@@ -172,6 +183,7 @@ Diagram:
       TargetArrowHead:
         Type: Open
       Type: orthogonal
+      LineColor: 'rgba(0,125,125,255)'
     - Source: User
       SourcePosition: E
       Target: IGW2
@@ -180,3 +192,7 @@ Diagram:
         Type: Open
       Type: orthogonal
       LineColor: 'rgba(0,125,125,255)'
+      Labels:
+        SourceLeft:
+          Title: "SSH access"
+          Color: 'rgba(0,125,125,255)'
