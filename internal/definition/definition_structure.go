@@ -20,18 +20,18 @@ type DefinitionStructure struct {
 func (ds *DefinitionStructure) LoadDefinitions(filePath string) error {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("Cannot open Definition File(%s): %v", filePath, err)
+		return fmt.Errorf("cannot open Definition File(%s): %v", filePath, err)
 	}
 
 	var b DefinitionStructure
 
 	err = yaml.Unmarshal([]byte(data), &b)
 	if err != nil {
-		return fmt.Errorf("Cannot yaml.Unmarshal Definition File(%s): %v", filePath, err)
+		return fmt.Errorf("cannot yaml.Unmarshal Definition File(%s): %v", filePath, err)
 	}
 
 	// Linking definitions
-	for k, _ := range b.Definitions {
+	for k := range b.Definitions {
 		v := b.Definitions[k]
 		src := func() string {
 			switch v.Type {
@@ -51,7 +51,7 @@ func (ds *DefinitionStructure) LoadDefinitions(filePath string) error {
 
 	// Downdload files and extract ZIP
 	q := []string{}
-	for k, _ := range b.Definitions {
+	for k := range b.Definitions {
 		q = append(q, k)
 	}
 	for len(q) > 0 {
@@ -62,34 +62,38 @@ func (ds *DefinitionStructure) LoadDefinitions(filePath string) error {
 			switch v.ZipFile.SourceType {
 			case "url":
 				if v.ZipFile.Url == "" {
-					return fmt.Errorf("Zip(url) needs ZipFile.Source")
+					return fmt.Errorf("Zip(url) needs ZipFile.URL")
 				}
 				filePath, err := cache.FetchFile(v.ZipFile.Url)
 				if err != nil {
-					return fmt.Errorf("Cannot FetchFile(%s): %v", v.ZipFile.Url, err)
+					return fmt.Errorf("cannot FetchFile(%s): %v", v.ZipFile.Url, err)
 				}
 				v.CacheFilePath, err = cache.ExtractZipFile(filePath)
 				if err != nil {
-					return fmt.Errorf("Cannot ExtractZipFile(%s): %v", filePath, err)
+					return fmt.Errorf("cannot ExtractZipFile(%s): %v", filePath, err)
 				}
 
 			case "file":
+				filePath := ""
 				if v.ZipFile.Source == "" {
-					return fmt.Errorf("Zip(file) needs ZipFile.Source")
+					//return fmt.Errorf("Zip(file) needs ZipFile.Source")
+					filePath = strings.TrimSuffix(v.ZipFile.Path, "/")
+				} else {
+					if b.Definitions[v.ZipFile.Source].CacheFilePath == "" {
+						q = append(q, k)
+						break
+					}
+					filePath = fmt.Sprintf("%s/%s", b.Definitions[v.ZipFile.Source].CacheFilePath, strings.TrimSuffix(v.ZipFile.Path, "/"))
 				}
-				if b.Definitions[v.ZipFile.Source].CacheFilePath == "" {
-					q = append(q, k)
-					break
-				}
-				filePath := fmt.Sprintf("%s/%s", b.Definitions[v.ZipFile.Source].CacheFilePath, strings.TrimSuffix(v.ZipFile.Path, "/"))
 				v.CacheFilePath, err = cache.ExtractZipFile(filePath)
 				if err != nil {
-					return fmt.Errorf("Cannot ExtractZipFile(%s): %v", filePath, err)
+					return fmt.Errorf("cannot ExtractZipFile(%s): %v", filePath, err)
 				}
 			}
 		case "Directory":
 			trimmedPath := strings.TrimSuffix(v.Directory.Path, "/")
 			if trimmedPath == "" {
+				//lint:ignore ST1005 Directory is a proper noun, so will ignore capitalization rule.
 				return fmt.Errorf("Directory %s has only slash or empty path", q)
 			}
 			if v.Directory.Source != "" {
