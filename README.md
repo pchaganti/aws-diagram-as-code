@@ -99,6 +99,7 @@ Add definition files to create non-AWS diagrams as well.
 The awsdac MCP server enables AI assistants and development tools to generate AWS architecture diagrams programmatically through the Model Context Protocol (MCP). This integration allows seamless diagram creation within your development workflow.
 
 ### Installation & MCP Client configuration
+**Note;** Currently, MCP Client Configuration depends on the MCP Client implementation. Please check the MCP client's documentation for the correct json format.
 
 #### for macOS user
 ```bash
@@ -110,7 +111,9 @@ MCP Client configuration:
 {
   "mcpServers": {
     "awsdac-mcp-server": {
-      "command": "/opt/homebrew/bin/awsdac-mcp-server"
+      "command": "/opt/homebrew/bin/awsdac-mcp-server",
+      "args": [],
+      "type": "stdio"
     }
   }
 }
@@ -122,7 +125,8 @@ MCP Client configuration with custom log:
   "mcpServers": {
     "awsdac-mcp-server": {
       "command": "/opt/homebrew/bin/awsdac-mcp-server",
-      "args": ["--log-file", "/path/to/custom/awsdac-mcp.log"]
+      "args": ["--log-file", "/path/to/custom/awsdac-mcp.log"],
+      "type": "stdio"
     }
   }
 }
@@ -137,7 +141,9 @@ go install github.com/awslabs/diagram-as-code/cmd/awsdac-mcp-server@latest
 {
   "mcpServers": {
     "awsdac-mcp-server": {
-      "command": "/Users/yourusername/go/bin/awsdac-mcp-server"
+      "command": "/Users/yourusername/go/bin/awsdac-mcp-server",
+      "args": [],
+      "type": "stdio"
     }
   }
 }
