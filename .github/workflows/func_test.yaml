@@ -1,12 +1,22 @@
 on:
   push:
-    branches:
-      - main
+    branches: [ '**' ]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/func_test.yaml'
   pull_request:
-    branches:
-      - main
+    branches: [ '**' ]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
 
 name: Functional test
+permissions:
+  contents: read
 
 jobs:
   build:
