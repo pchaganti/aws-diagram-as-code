@@ -52,6 +52,7 @@ type Resource struct {
 	label                   string
 	labelFont               string
 	labelColor              *color.RGBA
+	labelFillColor          *color.RGBA
 	headerAlign             string // left(default) / center / right
 	margin                  *Margin
 	padding                 *Padding
@@ -220,6 +221,10 @@ func (r *Resource) SetLabel(label *string, labelColor *color.RGBA, labelFont *st
 	if labelFont != nil {
 		r.labelFont = *labelFont
 	}
+}
+
+func (r *Resource) SetLabelFillColor(c color.RGBA) {
+	r.labelFillColor = &c
 }
 
 func (r *Resource) SetAlign(align string) {
@@ -538,10 +543,42 @@ func (r *Resource) Scale(parent *Resource, visited map[*Resource]bool) error {
 		b = *prev.bindings
 	}
 
+	// Pre-scale and equalize children for expand alignment
+	if r.align == "expand" && len(r.children) > 0 {
+		for _, c := range r.children {
+			if err := c.Scale(r, visited); err != nil {
+				return err
+			}
+		}
+		if r.direction == "vertical" {
+			maxW := 0
+			for _, c := range r.children {
+				maxW = maxInt(maxW, c.GetBindings().Dx())
+			}
+			for _, c := range r.children {
+				cb := c.GetBindings()
+				cb.Max.X = cb.Min.X + maxW
+				c.SetBindings(cb)
+			}
+		} else {
+			maxH := 0
+			for _, c := range r.children {
+				maxH = maxInt(maxH, c.GetBindings().Dy())
+			}
+			for _, c := range r.children {
+				cb := c.GetBindings()
+				cb.Max.Y = cb.Min.Y + maxH
+				c.SetBindings(cb)
+			}
+		}
+	}
+
 	for _, subResource := range r.children {
-		err := subResource.Scale(r, visited)
-		if err != nil {
-			return err
+		if r.align != "expand" {
+			err := subResource.Scale(r, visited)
+			if err != nil {
+				return err
+			}
 		}
 
 		bindings := subResource.GetBindings()
@@ -551,7 +588,7 @@ func (r *Resource) Scale(parent *Resource, visited map[*Resource]bool) error {
 			prevMargin := prev.GetMargin()
 			if r.direction == "horizontal" {
 				switch r.align {
-				case "top":
+				case "top", "expand":
 					if err := subResource.Translation(
 						prevBindings.Max.X+prevMargin.Right+margin.Left-bindings.Min.X,
 						prevBindings.Min.Y-prevMargin.Top+margin.Top-bindings.Min.Y,
@@ -577,7 +614,7 @@ func (r *Resource) Scale(parent *Resource, visited map[*Resource]bool) error {
 				}
 			} else {
 				switch r.align {
-				case "left":
+				case "left", "expand":
 					if err := subResource.Translation(
 						prevBindings.Min.X-prevMargin.Left+margin.Left-bindings.Min.X,
 						prevBindings.Max.Y+prevMargin.Bottom+margin.Top-bindings.Min.Y,
@@ -643,7 +680,42 @@ func (r *Resource) Scale(parent *Resource, visited map[*Resource]bool) error {
 			return fmt.Errorf("failed to translate border child resource: %w", err)
 		}
 	}
+	// After all recursive scaling is complete, propagate expand to nested children
+	if parent == nil {
+		r.propagateExpand()
+	}
 	return nil
+}
+
+// propagateExpand recursively re-equalizes children of expand groups
+// whose bindings were enlarged by a parent expand group.
+func (r *Resource) propagateExpand() {
+	if r.align == "expand" && len(r.children) > 0 {
+		if r.direction == "vertical" {
+			for _, c := range r.children {
+				m := c.GetMargin()
+				maxW := r.bindings.Dx() - r.padding.Left - r.padding.Right - m.Left - m.Right
+				cb := c.GetBindings()
+				if cb.Dx() < maxW {
+					cb.Max.X = cb.Min.X + maxW
+					c.SetBindings(cb)
+				}
+			}
+		} else {
+			for _, c := range r.children {
+				m := c.GetMargin()
+				maxH := r.bindings.Dy() - r.padding.Top - r.padding.Bottom - m.Top - m.Bottom
+				cb := c.GetBindings()
+				if cb.Dy() < maxH {
+					cb.Max.Y = cb.Min.Y + maxH
+					c.SetBindings(cb)
+				}
+			}
+		}
+	}
+	for _, c := range r.children {
+		c.propagateExpand()
+	}
 }
 
 func (r *Resource) Translation(dx, dy int) error {
@@ -1103,6 +1175,22 @@ func (r *Resource) drawLabel(img *image.RGBA, parent *Resource, hasChild, hasIco
 				})
 			}
 			point = fixed.Point26_6{fixed.I(p.X), fixed.I(p.Y)}
+		}
+
+		// Fill title background
+		if r.labelFillColor != nil {
+			dotX := point.X.Floor()
+			dotY := point.Y.Floor()
+			x1 := dotX + textBindings.Min.X.Floor() - 3
+			y1 := dotY + textBindings.Min.Y.Floor() - 3
+			x2 := dotX + textBindings.Max.X.Ceil() + 3
+			y2 := dotY + textBindings.Max.Y.Ceil() + 3
+			for x := x1; x < x2; x++ {
+				for y := y1; y < y2; y++ {
+					c := img.At(x, y)
+					img.Set(x, y, _blend_color(c, r.labelFillColor))
+				}
+			}
 		}
 
 		d := &font.Drawer{
