@@ -43,6 +43,7 @@ func TestIsAllowedZipURL(t *testing.T) {
 		{"official repo zip", "https://raw.githubusercontent.com/awslabs/diagram-as-code/main/internal/definition/testdata/aws-icons.zip", false},
 		// The bundled definition-for-aws-icons file legitimately pulls this.
 		{"official AWS icons CDN", "https://d1.awsstatic.com/webteam/architecture-icons/q1-2025/AWS-Architecture-Icon-Decks_02072025.zip", false},
+		{"d1 other path not allowed (narrowed)", "https://d1.awsstatic.com/some/other/file.zip", true},
 		{"untrusted host", "https://example.com/evil.zip", true},
 		{"localhost", "http://127.0.0.1:9192/evil.zip", true},
 		{"lookalike host", "https://d1.awsstatic.com.evil.com/evil.zip", true},

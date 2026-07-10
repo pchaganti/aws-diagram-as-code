@@ -17,10 +17,12 @@ var officialDefinitionURLPrefixes = []string{
 
 // officialZipURLPrefixes are the trusted sources for ZipFile.Url icon archives.
 // In addition to the official repo, the bundled definition-for-aws-icons file
-// pulls the official AWS Architecture Icons deck from the AWS static content CDN,
-// so that host must be permitted or the default behavior breaks.
+// pulls the official AWS Architecture Icons deck from the AWS static content CDN.
+// The prefix is scoped to the icons directory (least privilege) rather than the
+// whole d1.awsstatic.com host; the quarterly path and hashed filename live under
+// it, so this still matches future deck updates.
 var officialZipURLPrefixes = append(
-	[]string{"https://d1.awsstatic.com/"},
+	[]string{"https://d1.awsstatic.com/webteam/architecture-icons/"},
 	officialDefinitionURLPrefixes...,
 )
 
@@ -48,5 +50,5 @@ func IsAllowedZipURL(url string) error {
 	if matchesAllowedPrefix(url, officialZipURLPrefixes) {
 		return nil
 	}
-	return fmt.Errorf("ZipFile.Url must be from an official source (https://github.com/awslabs/diagram-as-code/ or https://d1.awsstatic.com/), got: %s. Use --allow-untrusted-definitions to allow untrusted URLs", url)
+	return fmt.Errorf("ZipFile.Url must be from an official source (https://github.com/awslabs/diagram-as-code/ or https://d1.awsstatic.com/webteam/architecture-icons/), got: %s. Use --allow-untrusted-definitions to allow untrusted URLs", url)
 }
