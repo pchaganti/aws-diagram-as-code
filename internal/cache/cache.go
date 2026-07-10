@@ -123,6 +123,24 @@ func writeEtagCache(etagFilePath, etag_value string) error {
 	return nil
 }
 
+// isAllowedRedirectHost reports whether an HTTP redirect may be followed to the
+// given host. The initial URL is already restricted by the caller's allowlist;
+// this keeps redirects within the official providers' own infrastructure (e.g.
+// github.com -> codeload.github.com, release assets on
+// objects.githubusercontent.com) so an open redirect on a trusted host cannot
+// bounce the fetch to an arbitrary attacker-controlled host. d1.awsstatic.com
+// serves directly (no redirect) and is pinned exactly, matching the narrowed
+// initial zip allowlist; only GitHub needs subdomain (CDN) matching.
+func isAllowedRedirectHost(host string) bool {
+	host = strings.ToLower(host)
+	switch host {
+	case "github.com", "githubusercontent.com", "d1.awsstatic.com":
+		return true
+	}
+	return strings.HasSuffix(host, ".github.com") ||
+		strings.HasSuffix(host, ".githubusercontent.com")
+}
+
 func FetchFile(url string) (string, error) {
 	log.Infof("[internal/cache/cache.go] FetchFile %s", url)
 	homeDir := getCacheBaseDir()
@@ -154,7 +172,17 @@ func FetchFile(url string) (string, error) {
 		req.Header.Add("If-None-Match", cached_etag_value)
 	}
 
-	client := new(http.Client)
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if !isAllowedRedirectHost(req.URL.Hostname()) {
+				return fmt.Errorf("redirect to disallowed host %q blocked", req.URL.Hostname())
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("cannot get HTTP resource(%s): %v", url, err)

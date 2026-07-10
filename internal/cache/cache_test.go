@@ -319,3 +319,45 @@ func createMaliciousZipFile(filePath string) error {
 	}
 	return nil
 }
+
+func TestIsAllowedRedirectHost(t *testing.T) {
+	cases := map[string]bool{
+		"github.com":                     true,
+		"codeload.github.com":            true, // GitHub archive redirect target
+		"objects.githubusercontent.com":  true, // GitHub release asset redirect target
+		"raw.githubusercontent.com":      true,
+		"githubusercontent.com":          true,
+		"d1.awsstatic.com":               true,
+		"other.awsstatic.com":            false, // only d1 is pinned; no *.awsstatic.com
+		"evil.com":                       false,
+		"evilgithub.com":                 false,
+		"githubusercontent.com.evil.com": false,
+		"attacker.s3.amazonaws.com":      false,
+	}
+	for host, want := range cases {
+		if got := isAllowedRedirectHost(host); got != want {
+			t.Errorf("isAllowedRedirectHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+// TestFetchFile_BlocksDisallowedRedirect verifies that a redirect to a host
+// outside the provider allowlist is rejected rather than silently followed.
+func TestFetchFile_BlocksDisallowedRedirect(t *testing.T) {
+	origBase := cacheBaseDir
+	t.Cleanup(func() { cacheBaseDir = origBase })
+	cacheBaseDir = t.TempDir()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://evil.example.com/payload.zip", http.StatusFound)
+	}))
+	defer server.Close()
+
+	_, err := FetchFile(server.URL)
+	if err == nil {
+		t.Fatal("expected FetchFile to block redirect to disallowed host, got nil error")
+	}
+	if !strings.Contains(err.Error(), "redirect") {
+		t.Errorf("expected a redirect-block error, got: %v", err)
+	}
+}
