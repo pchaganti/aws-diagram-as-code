@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -234,5 +235,87 @@ func createTestZipFile(filePath string) error {
 		return err
 	}
 
+	return nil
+}
+
+// TestExtractZipFile_ZipSlip verifies the Zip Slip (CWE-22) mitigation: an
+// archive whose entry name contains "../" traversal segments must be rejected
+// rather than writing outside the extraction directory.
+func TestExtractZipFile_ZipSlip(t *testing.T) {
+	// Redirect the cache base dir to a temp dir so extraction always runs
+	// (ExtractZipFile skips when the content-hash cache dir already exists) and
+	// the test neither depends on nor pollutes the real home cache.
+	origBase := cacheBaseDir
+	t.Cleanup(func() { cacheBaseDir = origBase })
+	cacheBaseDir = t.TempDir()
+
+	tempDir, err := os.MkdirTemp("", "zipslip")
+	if err != nil {
+		t.Fatalf("Failed to create temporary directory: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove temp directory: %v", err)
+		}
+	}()
+
+	zipFilePath := filepath.Join(tempDir, "evil.zip")
+	if err := createMaliciousZipFile(zipFilePath); err != nil {
+		t.Fatalf("Failed to create malicious zip file: %v", err)
+	}
+
+	_, err = ExtractZipFile(zipFilePath)
+	if err == nil {
+		t.Fatal("expected ExtractZipFile to reject path-traversal entry, got nil error")
+	}
+	if !strings.Contains(err.Error(), "path traversal") {
+		t.Errorf("expected 'path traversal' error, got: %v", err)
+	}
+
+	// The rejected extraction must not leave a partially-populated cache dir
+	// behind. If it did, ExtractZipFile's os.Stat short-circuit would treat the
+	// leftover dir as a valid cached extraction and return success (nil error)
+	// on the next call, silently masking the traversal attempt. A second call
+	// must therefore reject again rather than succeed.
+	if _, err2 := ExtractZipFile(zipFilePath); err2 == nil {
+		t.Fatal("expected second ExtractZipFile call to reject again (partial cache not cleaned up), got nil error")
+	} else if !strings.Contains(err2.Error(), "path traversal") {
+		t.Errorf("expected 'path traversal' error on retry, got: %v", err2)
+	}
+}
+
+func createMaliciousZipFile(filePath string) error {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("Failed to close file: %v", err)
+		}
+	}()
+
+	zipWriter := zip.NewWriter(file)
+	defer func() {
+		if err := zipWriter.Close(); err != nil {
+			log.Printf("Failed to close zip writer: %v", err)
+		}
+	}()
+
+	// Benign entry followed by a traversal entry, mirroring the reported PoC.
+	if f, err := zipWriter.Create("icon.png"); err != nil {
+		return err
+	} else if _, err := f.Write([]byte("\x89PNG\r\n\x1a\n")); err != nil {
+		return err
+	}
+
+	traversalName := strings.Repeat("../", 8) + "tmp/PWNED_zipslip_test.txt"
+	f, err := zipWriter.Create(traversalName)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write([]byte("ZIPSLIP_ARBITRARY_WRITE_PROOF")); err != nil {
+		return err
+	}
 	return nil
 }
