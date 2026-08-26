@@ -308,19 +308,9 @@ func resizeImage(src *image.RGBA, width, height int) *image.RGBA {
 }
 
 func isAllowedDefinitionURL(url string) error {
-	// Allow only official repository
-	allowedPrefixes := []string{
-		"https://raw.githubusercontent.com/awslabs/diagram-as-code/",
-		"https://github.com/awslabs/diagram-as-code/",
-	}
-
-	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(url, prefix) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("definition file URL must be from official repository (https://github.com/awslabs/diagram-as-code/), got: %s. Use --allow-untrusted-definitions to allow untrusted URLs", url)
+	// Delegate to the shared allowlist in the definition package so the
+	// definition-file URL check stays consistent with ZipFile.Url handling.
+	return definition.IsAllowedDefinitionURL(url)
 }
 
 func loadDefinitionFiles(template *TemplateStruct, ds *definition.DefinitionStructure, allowUntrusted bool) error {
@@ -341,13 +331,13 @@ func loadDefinitionFiles(template *TemplateStruct, ds *definition.DefinitionStru
 				return fmt.Errorf("failed to fetch definition file from URL %s: %w", v.Url, err)
 			}
 			log.Infof("Read definition file from cache file: %s\n", cacheFilePath)
-			err = ds.LoadDefinitions(cacheFilePath)
+			err = ds.LoadDefinitions(cacheFilePath, allowUntrusted)
 			if err != nil {
 				return fmt.Errorf("failed to load definitions from cache file %s: %w", cacheFilePath, err)
 			}
 		case "LocalFile":
 			log.Infof("Read definition file from path: %s\n", v.LocalFile)
-			err := ds.LoadDefinitions(v.LocalFile)
+			err := ds.LoadDefinitions(v.LocalFile, allowUntrusted)
 			if err != nil {
 				return fmt.Errorf("failed to load definitions from local file %s: %w", v.LocalFile, err)
 			}
