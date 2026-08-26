@@ -48,6 +48,12 @@ func createFileWithDirectory(filePath string) (*os.File, error) {
 	return out, nil
 }
 
+// writeFile extracts a single zip entry to outputFilename. It always creates a
+// regular file via createFileWithDirectory (os.Create) and never calls
+// os.Symlink, so a zip entry that declares itself a symlink is materialized as
+// a plain file containing the link-target text rather than an actual symlink.
+// This prevents a symlink-then-write traversal. If symlink extraction is ever
+// added here, the Zip Slip containment check in ExtractZipFile must be revisited.
 func writeFile(outputFilename string, fi *zip.File) error {
 	rc, err := fi.Open()
 	if err != nil {
@@ -117,6 +123,24 @@ func writeEtagCache(etagFilePath, etag_value string) error {
 	return nil
 }
 
+// isAllowedRedirectHost reports whether an HTTP redirect may be followed to the
+// given host. The initial URL is already restricted by the caller's allowlist;
+// this keeps redirects within the official providers' own infrastructure (e.g.
+// github.com -> codeload.github.com, release assets on
+// objects.githubusercontent.com) so an open redirect on a trusted host cannot
+// bounce the fetch to an arbitrary attacker-controlled host. d1.awsstatic.com
+// serves directly (no redirect) and is pinned exactly, matching the narrowed
+// initial zip allowlist; only GitHub needs subdomain (CDN) matching.
+func isAllowedRedirectHost(host string) bool {
+	host = strings.ToLower(host)
+	switch host {
+	case "github.com", "githubusercontent.com", "d1.awsstatic.com":
+		return true
+	}
+	return strings.HasSuffix(host, ".github.com") ||
+		strings.HasSuffix(host, ".githubusercontent.com")
+}
+
 func FetchFile(url string) (string, error) {
 	log.Infof("[internal/cache/cache.go] FetchFile %s", url)
 	homeDir := getCacheBaseDir()
@@ -148,7 +172,17 @@ func FetchFile(url string) (string, error) {
 		req.Header.Add("If-None-Match", cached_etag_value)
 	}
 
-	client := new(http.Client)
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if !isAllowedRedirectHost(req.URL.Hostname()) {
+				return fmt.Errorf("redirect to disallowed host %q blocked", req.URL.Hostname())
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("cannot get HTTP resource(%s): %v", url, err)
@@ -241,14 +275,31 @@ func ExtractZipFile(filePath string) (string, error) {
 				log.Warnf("Failed to close zip reader: %v", closeErr)
 			}
 		}()
+		// allowedPrefix is loop-invariant, so compute the cleaned extraction
+		// root prefix once and reuse it for every entry's containment check.
+		allowedPrefix := filepath.Clean(cacheFilePath) + string(os.PathSeparator)
 		for _, f := range r.File {
 			if strings.HasSuffix(f.Name, "/") {
 				continue
 			}
-			outputFilename := fmt.Sprintf("%s/%s", cacheFilePath, f.Name)
+			// Zip Slip (CWE-22) mitigation: build the output path with
+			// filepath.Join (which cleans "../" segments) and reject any entry
+			// whose resolved path is not strictly inside the extraction
+			// directory. This also rejects degenerate "." / empty entries that
+			// would otherwise resolve to the extraction root itself.
+			outputFilename := filepath.Join(cacheFilePath, f.Name)
+			if !strings.HasPrefix(outputFilename, allowedPrefix) {
+				// Remove the partially-extracted cache dir so a rejected
+				// archive is not left half-populated and cannot be mistaken
+				// for a valid cached extraction on a later run. Best-effort:
+				// the rejection error takes precedence over any cleanup error.
+				_ = os.RemoveAll(cacheFilePath)
+				return "", fmt.Errorf("illegal file path in zip archive (possible path traversal): %q", f.Name)
+			}
 
 			err := writeFile(outputFilename, f)
 			if err != nil {
+				_ = os.RemoveAll(cacheFilePath)
 				return "", fmt.Errorf("cannot write file(%s): %v", f.Name, err)
 			}
 		}
