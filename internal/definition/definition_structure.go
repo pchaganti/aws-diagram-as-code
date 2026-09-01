@@ -17,7 +17,7 @@ type DefinitionStructure struct {
 	Definitions map[string]*Definition `yaml:"Definitions"`
 }
 
-func (ds *DefinitionStructure) LoadDefinitions(filePath string) error {
+func (ds *DefinitionStructure) LoadDefinitions(filePath string, allowUntrusted bool) error {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("cannot open Definition File(%s): %v", filePath, err)
@@ -71,6 +71,14 @@ func (ds *DefinitionStructure) LoadDefinitions(filePath string) error {
 			case "url":
 				if v.ZipFile.Url == "" {
 					return fmt.Errorf("Zip(url) needs ZipFile.URL")
+				}
+				// Restrict ZipFile.Url to trusted sources unless the user has
+				// explicitly opted into untrusted definitions. Without this the
+				// URL bypasses the top-level definition-file allowlist.
+				if !allowUntrusted {
+					if err := IsAllowedZipURL(v.ZipFile.Url); err != nil {
+						return err
+					}
 				}
 				filePath, err := cache.FetchFile(v.ZipFile.Url)
 				if err != nil {

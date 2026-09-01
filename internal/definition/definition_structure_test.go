@@ -57,7 +57,7 @@ func TestDefinitionStructure_LoadDefinitions(t *testing.T) {
 
 	t.Run("Valid YAML file", func(t *testing.T) {
 		ds := &DefinitionStructure{}
-		err := ds.LoadDefinitions("testdata/valid.yaml")
+		err := ds.LoadDefinitions("testdata/valid.yaml", false)
 		if err != nil {
 			t.Errorf("Failed to laod definition file: %v", err)
 		}
